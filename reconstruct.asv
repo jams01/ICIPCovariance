@@ -1,0 +1,62 @@
+load('ready/H')
+load('ready/tf')
+load('ready/P')
+load('ready/params')
+
+%load measurements
+load('medidas/Cuento_aperture8rand=false.mat')
+
+% hand crafted correction
+X=imrotate(X,-0.6,'bilinear');
+% select the same region chosen in the sensing matrix 
+sH = X(513:513+params.M-1,64:64+params.N-1,:);
+Y = zeros([round(M/disminuir),(N/disminuir),shots]); 
+% decimate
+for si=1:shots
+    Y(:,:,si) = imresize(sH(:,:,nshots(si)),[round(M/disminuir),(N/disminuir)],'bilinear');
+end
+
+% extract the partition of the image using tf (the spatial distribution of the filters)
+tf = reshape(tf,[round(M/disminuir)*round(N/disminuir),1]);
+Ys = cell(1,patterns);
+for i=1:patterns
+    Ys{i}=Y1(tf==i,:)';
+end
+
+for i=1:patterns
+    P{i}=P{i}';
+end
+% we compute the mean and substract it from measurements, and occording
+% repeat this process since it gives better results.
+meanst=estimate_mean(P,Ys);
+Y1=cell(size(Ys));
+for i=1:patterns
+    Y1{i}=Ys{i}-P{i}'*(kron(meanst,ones(1,size(Ys{i},2))));
+end
+for j=1:15
+    mst=estimate_mean(P,Y1);
+    meanst=meanst+mst;
+    for i=1:patterns
+        Y1{i}=Y1{i}-P{i}'*(kron(mst,ones(1,size(Ys{i},2))));
+    end
+end
+
+Sigma1 =  estimate_cov6(P,Y1,it,0.0005,200,4,0,0,0);
+[Wrm,e1]=svd((Sigma1)./1);
+    %e1=real(e1);
+    Wrm=real(Wrm);
+    W2=Wrm(:,1:5);%rank(Sigma1));
+    Y_est = cell(1,patterns);
+    for i=1:patterns
+        Y_est{i}=pinv(P{i}'*W2)*Y1{i};%
+    end
+    Y_est=W2*cell2mat(Y_est);%
+    Ys1 = zeros(floor(101/disminuirbands), M/disminuir*N/disminuir);
+    n = 1;
+    for i=1:patterns
+        Ys1(:,tf==i)=(Y_est(:,n:((n-1)+sum(tf==i))));
+        n = n + sum(tf==i);
+    end
+    Ys1=Ys1+meanst;
+    Ft = reshape(Ys1',[M/disminuir,N/disminuir,floor(101/disminuirbands)]);
+    imhyp = imhyp + Ft;
